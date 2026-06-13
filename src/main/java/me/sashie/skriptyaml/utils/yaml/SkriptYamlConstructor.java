@@ -147,12 +147,13 @@ public class SkriptYamlConstructor extends SafeConstructor {
 		@Override
 		public Object construct(Node node) {
 			final Map<Object, Object> values = constructMapping((MappingNode) node);
-			String type = (String) values.get("type");
-			String data = (String) values.get("data");
+			String type = values.get("type") == null ? null : values.get("type").toString();
+			String format = values.get("format") == null ? null : values.get("format").toString();
+			String data = values.get("data") == null ? null : values.get("data").toString();
 			if (type == null || data == null)
 				return null;
 
-			return SkriptClass.deserialize(type, data);
+			return SkriptClass.deserialize(type, data, format);
 		}
 	}
 

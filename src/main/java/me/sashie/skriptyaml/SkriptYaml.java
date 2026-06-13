@@ -22,17 +22,23 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.logging.Logger;
 
 public class SkriptYaml extends JavaPlugin {
 
 	public final static Logger LOGGER = Bukkit.getServer() != null ? Bukkit.getLogger() : Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
-	public final static ConcurrentHashMap<String, YAMLProcessor> YAML_STORE = new ConcurrentHashMap<String, YAMLProcessor>();
+	// Case-insensitive ID store: a yaml loaded `as "Y"` is found by set/save/get using "y" (and vice versa).
+	// ConcurrentSkipListMap keeps the thread-safety the async effects rely on and preserves the first-inserted
+	// key casing. String.CASE_INSENSITIVE_ORDER is locale-independent (ASCII), so it avoids the Turkish 'I/ı'
+	// pitfall that a manual toLowerCase() on keys would hit.
+	public final static ConcurrentMap<String, YAMLProcessor> YAML_STORE = new ConcurrentSkipListMap<String, YAMLProcessor>(String.CASE_INSENSITIVE_ORDER);
 
 	private static SkriptYaml instance;
 	private int serverVersion;
 	private SkriptAdapter adapter;
+	private UpdateChecker updateChecker;
 
 	private final static HashMap<String, String> REGISTERED_TAGS = new HashMap<String, String>();
 	private static SkriptYamlRepresenter representer;
@@ -145,13 +151,29 @@ public class SkriptYaml extends JavaPlugin {
 							return registeredTags();
 						}
 					}));
-			new UpdateChecker(this);
+			updateChecker = new UpdateChecker(this);
 		} else {
 			Bukkit.getPluginManager().disablePlugin(this);
 			error("Skript not found, plugin disabled.");
 		}
 
 
+	}
+
+	@Override
+	public void onDisable() {
+		AsyncEffect.shutdownExecutor();
+		if (updateChecker != null) {
+			updateChecker.cancel();
+			updateChecker = null;
+		}
+		YAML_STORE.clear();
+		REGISTERED_TAGS.clear();
+		SkriptYamlRepresenter.clearRepresentedClasses();
+		representer = null;
+		constructor = null;
+		adapter = null;
+		instance = null;
 	}
 /*
 	public String registeredTagsToString() {

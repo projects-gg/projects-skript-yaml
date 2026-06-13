@@ -24,7 +24,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.Map;
-import java.util.regex.Matcher;
 
 /**
  * String utilities.
@@ -36,13 +35,13 @@ public final class StringUtil {
 
 	public static String replaceTabs(String text) {
 		if (text.contains("\t"))
-			return text.replaceAll("\t", "    ");
+			return text.replace("\t", "    ");
 		return text;
 	}
 
 	public static String checkSeparator(String check) {
 		if (check.contains("/"))
-			return check.replaceAll("/", Matcher.quoteReplacement(File.separator));
+			return check.replace('/', File.separatorChar);
 		return check;
 	}
 
@@ -54,7 +53,7 @@ public final class StringUtil {
 			if (!check.endsWith("\\"))
 				return check + "\\";
 		} else if (!check.contains("/") || !check.contains("\\")) {
-			return check + Matcher.quoteReplacement(File.separator);
+			return check + File.separator;
 		}
 		return check;
 	}
@@ -153,9 +152,9 @@ public final class StringUtil {
 			return null;
 		if (!parse && String.class.isAssignableFrom(delta.getClass())) {
 			String s = StringUtil.translateColorCodesBack(((String) delta));
-			if (s.matches("true|false|yes|no|on|off")) {
-				return s.matches("true|yes|on");
-			} else if (s.matches("(-)?\\d+")) {
+			if (isBooleanLiteral(s)) {
+				return s.equals("true") || s.equals("yes") || s.equals("on");
+			} else if (isLongLiteral(s)) {
 				try {
 					return Long.parseLong(s);
 				} catch (NumberFormatException ex) {
@@ -163,13 +162,50 @@ public final class StringUtil {
 //					return new BigInteger(s);
 				}
 				
-			} else if (s.matches("(-)?\\d+(\\.\\d+)")) {
+			} else if (isDoubleLiteral(s)) {
 				return Double.parseDouble(s);
 			} else {
 				return s;
 			}
 		}
 		return delta;
+	}
+
+	private static boolean isBooleanLiteral(String s) {
+		return s.equals("true") || s.equals("false") || s.equals("yes") || s.equals("no") || s.equals("on") || s.equals("off");
+	}
+
+	private static boolean isLongLiteral(String s) {
+		if (s.isEmpty())
+			return false;
+		int start = s.charAt(0) == '-' ? 1 : 0;
+		if (start == s.length())
+			return false;
+		for (int i = start; i < s.length(); i++) {
+			if (!Character.isDigit(s.charAt(i)))
+				return false;
+		}
+		return true;
+	}
+
+	private static boolean isDoubleLiteral(String s) {
+		if (s.isEmpty())
+			return false;
+		int start = s.charAt(0) == '-' ? 1 : 0;
+		int dot = -1;
+		if (start == s.length())
+			return false;
+		for (int i = start; i < s.length(); i++) {
+			char c = s.charAt(i);
+			if (c == '.') {
+				if (dot != -1)
+					return false;
+				dot = i;
+			} else if (!Character.isDigit(c)) {
+				return false;
+			}
+		}
+		return dot > start && dot < s.length() - 1;
 	}
 
 	/**

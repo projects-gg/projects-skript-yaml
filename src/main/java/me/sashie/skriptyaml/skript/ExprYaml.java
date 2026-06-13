@@ -155,6 +155,8 @@ public class ExprYaml<T> extends SimpleExpressionFork<T> {
 			if (o != null) {
 				if (!checks && String.class.isAssignableFrom(o.getClass()))
 					o = ChatColor.translateAlternateColorCodes('&', (String) o);
+				// untagged location maps (world/x/y/z[/yaw/pitch]) -> real Location so they can be cast/used as locations
+				o = SkriptYamlUtils.tryConvertLocation(o);
 				try {
 					return SkriptYamlUtils.convertToArray(o, (Class<T>) o.getClass());
 				} catch (ClassCastException e) {

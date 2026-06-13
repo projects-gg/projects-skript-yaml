@@ -35,6 +35,7 @@ import org.yaml.snakeyaml.representer.Representer;
 
 import java.io.*;
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.Map.Entry;
 
@@ -83,6 +84,7 @@ public class YAMLProcessor extends YAMLNode {
 	protected boolean extraHeaderLine;
 	protected YAMLFormat format;
 	private boolean fileDeleted = false;
+	private boolean loadFailed = false;
 
 	/*
 	 * Map from property key to comment. Comment may have multiple lines that are
@@ -121,22 +123,17 @@ public class YAMLProcessor extends YAMLNode {
 	 *             on load error
 	 */
 	public void oldLoad() throws IOException {
-		InputStream stream = null;
-
-		try {
-			stream = getInputStream();
+		loadFailed = false;
+		try (InputStream stream = getInputStream()) {
 			if (stream == null)
 				throw new IOException("Stream is null!");
 			read(yaml.load(new UnicodeReader(stream)));
 		} catch (YAMLProcessorException e) {
+			loadFailed = true;
 			root = new LinkedHashMap<String, Object>();
-		} finally {
-			try {
-				if (stream != null) {
-					stream.close();
-				}
-			} catch (IOException ignored) {
-			}
+		} catch (YAMLException e) {
+			loadFailed = true;
+			root = new LinkedHashMap<String, Object>();
 		}
 	}
 
@@ -147,44 +144,48 @@ public class YAMLProcessor extends YAMLNode {
 	 *             on load error
 	 */
 	public void load() throws IOException {
-		InputStream stream = null;
-		BufferedReader input = null;
+		loadFailed = false;
 		builder = new StringBuilder();
 		try {
-			stream = getInputStream();
+			InputStream stream = getInputStream();
 			if (stream == null)
 				throw new IOException("Stream is null!");
 
-			input = new BufferedReader(new UnicodeReader(stream), 65536);
-
-			List<String> lines = new ArrayList<String>();
-			for (String line = input.readLine(); line != null; line = input.readLine()) {
-				buildYaml(line);
-				if (line.startsWith(HEADER_PREFIX))
-					recursiveHeaderSearch(line, lines, input);
-				else if (line.startsWith(COMMENT_PREFIX))
-					recursiveCommentSearch(line, lines, input);
+			try (InputStream closeableStream = stream; BufferedReader input = new BufferedReader(new UnicodeReader(closeableStream), 65536)) {
+				List<String> lines = new ArrayList<String>();
+				for (String line = input.readLine(); line != null; line = input.readLine()) {
+					buildYaml(line);
+					if (line.startsWith(HEADER_PREFIX))
+						recursiveHeaderSearch(line, lines, input);
+					else if (line.startsWith(COMMENT_PREFIX))
+						recursiveCommentSearch(line, lines, input);
+				}
 			}
 
 			read(yaml.load(builder.toString()));
 			//read(yaml.load(input));
 			markUnmodified(); // Reset modified flag after successful load
 		} catch (ConstructorException e) {
-			SkriptYaml.error("[Load Yaml] Snakeyaml " + e.getProblem() + " in file '" + file.getAbsolutePath() + "' (possible loss of data)");
-		} catch (YAMLProcessorException e) {
+			loadFailed = true;
 			root = new LinkedHashMap<String, Object>();
-		} finally {
-			try {
-				if (input != null)
-					input.close();
-				if (stream != null)
-					stream.close();
-			} catch (IOException ignored) {
-			}
+			SkriptYaml.error("[Load Yaml] Snakeyaml " + e.getProblem() + " in file '" + file.getAbsolutePath() + "' (possible loss of data)");
+		} catch (YAMLException e) {
+			loadFailed = true;
+			root = new LinkedHashMap<String, Object>();
+			SkriptYaml.error("[Load Yaml] Snakeyaml " + e.getMessage() + " in file '" + file.getAbsolutePath() + "' (possible loss of data)");
+		} catch (YAMLProcessorException e) {
+			loadFailed = true;
+			root = new LinkedHashMap<String, Object>();
 		}
 	}
 
+	public boolean hasLoadFailed() {
+		return loadFailed;
+	}
+
 	private void buildYaml(String line) {
+		if (line == null)
+			return;
 		builder.append(line);
 		builder.append(LINE_BREAK);
 	}
@@ -291,19 +292,16 @@ public class YAMLProcessor extends YAMLNode {
 	 * @return true if it was successful
 	 */
 	public boolean save(boolean extraLines) {
-		OutputStream stream = null;
-
 		File parent = file.getParentFile();
 
 		if (parent != null) {
 			parent.mkdirs();
 		}
 
-		try {
-			stream = getOutputStream();
+		try (OutputStream stream = getOutputStream()) {
 			if (stream == null)
 				return false;
-			OutputStreamWriter writer = new OutputStreamWriter(stream, "UTF-8");
+			try (Writer writer = new OutputStreamWriter(stream, StandardCharsets.UTF_8)) {
 			if (header != null) {
 				writer.append(header);
 				writer.append(LINE_BREAK);
@@ -321,7 +319,7 @@ public class YAMLProcessor extends YAMLNode {
 				//firstKey = root.keySet().toArray(new String[root.size()])[0];
 
 
-				firstKey = root.keySet().toArray(new String[root.size()])[0];
+				firstKey = root.keySet().iterator().next();
 
 			}
 			if (comments.isEmpty() || format != YAMLFormat.EXTENDED) {
@@ -353,17 +351,11 @@ public class YAMLProcessor extends YAMLNode {
 					yaml.dump(Collections.singletonMap(entry.getKey(), serialize(entry.getValue())), writer);
 				}
 			}
+			}
 			markUnmodified(); // Reset modified flag after successful save
 			return true;
 		} catch (IOException ex) {
 			ex.printStackTrace();
-		} finally {
-			try {
-				if (stream != null) {
-					stream.close();
-				}
-			} catch (IOException ignored) {
-			}
 		}
 
 		return false;
@@ -396,7 +388,7 @@ public class YAMLProcessor extends YAMLNode {
 			if (val.type.equals("itemstack"))
 				return Classes.deserialize(val.type, val.data);	// returns ItemStack instead of SkriptClass
 
-			return new SkriptClass(val.type, val.data);
+			return new SkriptClass(value, val.type, val.data);
 		}
 		return value;
 	}

@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -17,13 +18,18 @@ import java.util.concurrent.CompletableFuture;
 
 public class UpdateChecker implements Listener {
 
+    private static final Gson GSON = new Gson();
+
     private final JavaPlugin plugin;
     private final String currentVersion;
-    private String latestVersion;
+    private final String currentVersionNumbers;
+    private CompletableFuture<HttpResponse<String>> responseFuture;
+    private volatile String latestVersion;
 
     public UpdateChecker(JavaPlugin plugin) {
         this.plugin = plugin;
         this.currentVersion = plugin.getDescription().getVersion();
+        this.currentVersionNumbers = retainVersionNumbers(currentVersion);
         //this.currentVersion = plugin.getPluginMeta().getVersion();
         Bukkit.getPluginManager().registerEvents(this, plugin);
         checkForUpdate();
@@ -33,7 +39,7 @@ public class UpdateChecker implements Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         if (player.hasPermission("skriptyaml.update.check") && latestVersion != null) {
-            if (isVersionOutdated(currentVersion.replaceAll("[^0-9.]", ""), latestVersion)) {
+            if (isVersionOutdated(currentVersionNumbers, latestVersion)) {
                 player.sendMessage(" ");
                 player.sendRichMessage("<dark_gray>[<red>Skript<white>-<blue>Yaml<dark_gray>] <white>Skript-Yaml is <red><bold>OUTDATED</bold><white>!");
                 player.sendRichMessage("<dark_gray>[<red>Skript<white>-<blue>Yaml<dark_gray>] <white>New version: <green>" + latestVersion);
@@ -49,15 +55,15 @@ public class UpdateChecker implements Listener {
                 .uri(URI.create("https://api.github.com/repos/Sashie/Skript-Yaml/releases/latest"))
                 .build();
 
-        CompletableFuture<HttpResponse<String>> responseFuture = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        responseFuture = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
 
         responseFuture.thenApply(HttpResponse::body)
                 .thenAccept(body -> {
-                    JsonObject jsonResponse = new Gson().fromJson(body, JsonObject.class);
+                    JsonObject jsonResponse = GSON.fromJson(body, JsonObject.class);
                     if (jsonResponse != null && jsonResponse.has("tag_name")) {
-                        latestVersion = jsonResponse.get("tag_name").getAsString().replaceAll("[^0-9.]", "");
+                        latestVersion = retainVersionNumbers(jsonResponse.get("tag_name").getAsString());
 
-                        if (isVersionOutdated(currentVersion.replaceAll("[^0-9.]", ""), latestVersion)) {
+                        if (isVersionOutdated(currentVersionNumbers, latestVersion)) {
                             Utilities.log("&cSkript-Yaml is not up to date!");
                             Utilities.log("&f - Current version: &cv" + currentVersion);
                             Utilities.log("&f - Available update: &a" + latestVersion);
@@ -73,6 +79,22 @@ public class UpdateChecker implements Listener {
                     Bukkit.getLogger().severe("Failed to check for updates: " + e.getMessage());
                     return null;
                 });
+    }
+
+    public void cancel() {
+        HandlerList.unregisterAll(this);
+        if (responseFuture != null)
+            responseFuture.cancel(true);
+    }
+
+    private static String retainVersionNumbers(String version) {
+        StringBuilder result = new StringBuilder(version.length());
+        for (int i = 0; i < version.length(); i++) {
+            char c = version.charAt(i);
+            if ((c >= '0' && c <= '9') || c == '.')
+                result.append(c);
+        }
+        return result.toString();
     }
 
     private boolean isVersionOutdated(String current, String latest) {

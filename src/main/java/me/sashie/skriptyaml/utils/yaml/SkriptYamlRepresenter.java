@@ -19,34 +19,14 @@ import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.DumperOptions.FlowStyle;
 import org.yaml.snakeyaml.nodes.Node;
 import org.yaml.snakeyaml.nodes.Tag;
-import org.yaml.snakeyaml.representer.BaseRepresenter;
 import org.yaml.snakeyaml.representer.Represent;
 import org.yaml.snakeyaml.representer.Representer;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.*;
 
 public class SkriptYamlRepresenter extends Representer {
 
-	private static Method representMappingMethod;
-	private static Method representScalarMethod;
-
-	static {		
-		if (SkriptYaml.getInstance().getServerVersion() <= 12) {
-			try {
-				Class<?> baseRepresenterClass = BaseRepresenter.class;
-				representMappingMethod = baseRepresenterClass.getDeclaredMethod("representMapping", Tag.class, Map.class, Boolean.class);
-				representMappingMethod.setAccessible(true);
-				representScalarMethod = baseRepresenterClass.getDeclaredMethod("representScalar", Tag.class, String.class, Character.class);
-				representScalarMethod.setAccessible(true);
-			} catch (SecurityException | NoSuchMethodException e) {
-				e.printStackTrace();
-			}
-		}
-	}
-
-	private static List<String> representedClasses = new ArrayList<>();
+	private static final Set<String> representedClasses = new HashSet<String>();
 
 	public SkriptYamlRepresenter() {
 		super(new DumperOptions());
@@ -90,8 +70,11 @@ public class SkriptYamlRepresenter extends Representer {
 		rc.tag = tag;
 		this.representers.put(c, rc);
 		String name = c.getSimpleName();
-		if (!representedClasses.contains(name))
-			representedClasses.add(name);
+		representedClasses.add(name);
+	}
+
+	public static void clearRepresentedClasses() {
+		representedClasses.clear();
 	}
 
 	public static boolean contains(Object object) {
@@ -121,17 +104,7 @@ public class SkriptYamlRepresenter extends Representer {
 
 	private Node representScalar(Object data) {
 		if (data instanceof String && data.toString().contains("&")) {	//fixing a bug with color codes not working sometimes
-			if (SkriptYaml.getInstance().getServerVersion() >= 13) {
-				return representScalar(Tag.STR, data.toString(), DumperOptions.ScalarStyle.DOUBLE_QUOTED);
-			} else {
-				Node node = null;
-				try {
-					node = (Node) representScalarMethod.invoke(this, Tag.STR, data.toString(), '"');
-				} catch (SecurityException | IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
-					e.printStackTrace();
-				}
-				return node;
-			}
+			return representScalar(Tag.STR, data.toString(), DumperOptions.ScalarStyle.DOUBLE_QUOTED);
 		} else {
 			return representScalar(Tag.STR, data.toString());
 		}
@@ -206,28 +179,16 @@ public class SkriptYamlRepresenter extends Representer {
 			Map<String, Object> out = new LinkedHashMap<String, Object>();
 			SkriptClass skriptClass = (SkriptClass) data;
 			out.put("type", skriptClass.getType());
+			if (skriptClass.getFormat() != null)
+				out.put("format", skriptClass.getFormat());
 			out.put("data", skriptClass.getData());
 			return representMapping(new Tag("!skriptclass"), out);
 		}
 	}
 
-	/*
-	 * To make things backwards compatible and prevent NoSuchMethod exceptions.
-	 * (spigot updated snakeyaml in 1.13.2)
-	 */
 	@SuppressWarnings({ "unchecked" })
 	public <T> T representMapping(Tag tag, Map<?, ?> mapping) {
-		if (SkriptYaml.getInstance().getServerVersion() >= 13) {
-			return (T) representMapping(tag, mapping, FlowStyle.BLOCK);
-		} else {
-			T node = null;
-			try {
-				node = (T) representMappingMethod.invoke(this, tag, mapping, null);
-			} catch (SecurityException | IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
-				e.printStackTrace();
-			}
-			return (T) node;
-		}
+		return (T) representMapping(tag, mapping, FlowStyle.BLOCK);
 	}
 	
 	private class RepresentSkriptItemType extends RepresentMap {

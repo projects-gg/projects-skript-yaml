@@ -6,6 +6,7 @@ import me.sashie.skriptyaml.skript.ExprYaml.YamlState;
 import me.sashie.skriptyaml.utils.SkriptYamlUtils;
 import me.sashie.skriptyaml.utils.StringUtil;
 import org.bukkit.ChatColor;
+import org.yaml.snakeyaml.error.YAMLException;
 
 import java.io.File;
 import java.io.FilenameFilter;
@@ -21,20 +22,14 @@ import java.util.*;
 public class YAMLAPI {
 
 	public static void loadFromDefault(String id, String path, String defaultYamlFile) {
-	    InputStream stream = null;
-		try {
-			stream = YAMLAPI.class.getResource(defaultYamlFile + ".yml").openStream();
-			
+		try (InputStream stream = YAMLAPI.class.getResourceAsStream(defaultYamlFile + ".yml")) {
+			if (stream == null) {
+				SkriptYaml.error("[Load Yaml] Default yaml '" + defaultYamlFile + ".yml' was not found");
+				return;
+			}
 			Files.copy(stream, Paths.get(path), StandardCopyOption.REPLACE_EXISTING);
 		} catch (IOException e) {
 			e.printStackTrace();
-		} finally {
-			try {
-				if (stream != null) {
-					stream.close();
-				}
-			} catch (IOException ignored) {
-			}
 		}
 
 		load(id, path + File.separator + defaultYamlFile + ".yml", false);
@@ -46,13 +41,13 @@ public class YAMLAPI {
 	}
 
 	public static boolean load(String id, File file, SkriptNode skriptNode) {
+		// Resolve case-insensitively so e.g. 'y.yml' picks up an existing 'Y.yml' on case-sensitive
+		// filesystems instead of creating a new empty file next to it.
+		file = SkriptYamlUtils.resolveIgnoreCase(file);
 		try {
 			if (!file.exists()) {
-				File folder;
-				String filePath = file.getPath();
-				int index = filePath.lastIndexOf(File.separator);
-				folder = new File(filePath.substring(0, index));
-				if (index >= 0 && !folder.exists()) {
+				File folder = file.getParentFile();
+				if (folder != null && !folder.exists()) {
 					folder.mkdirs();
 				}
 				file.createNewFile();
@@ -66,12 +61,17 @@ public class YAMLAPI {
 
 		try {
 			yaml.load();
+			if (yaml.hasLoadFailed())
+				return false;
 		} catch (IOException e) {
 			e.printStackTrace();
-		} finally {
-			SkriptYaml.YAML_STORE.put(id, yaml);
+			return false;
+		} catch (YAMLException e) {
+			SkriptYaml.error("[Load Yaml] Snakeyaml " + e.getMessage() + " in file '" + file.getAbsolutePath() + "' (possible loss of data)");
+			return false;
 		}
 
+		SkriptYaml.YAML_STORE.put(id, yaml);
 		return true;
 	}
 
@@ -94,11 +94,13 @@ public class YAMLAPI {
 
 		File[] files = dir.listFiles(new FilenameFilter() {
 			public boolean accept(File dir, String filename) {
-				if (filename.endsWith(".yml") | filename.endsWith(".yaml"))
+				if (filename.endsWith(".yml") || filename.endsWith(".yaml"))
 					return true;
 				return false;
 			}
 		});
+		if (files == null)
+			return;
 
 		for (File yamlFile : files) {
 			YAMLProcessor yaml = new YAMLProcessor(yamlFile, false, YAMLFormat.EXTENDED);
@@ -131,12 +133,13 @@ public class YAMLAPI {
 
 
 	public static YAMLProcessor get(String id) {
-		if (!SkriptYaml.YAML_STORE.containsKey(id)) {
+		YAMLProcessor yaml = SkriptYaml.YAML_STORE.get(id);
+		if (yaml == null) {
 			SkriptYaml.warn("No yaml by the name '" + id + "' has been loaded");
 			return null;
 		}
 
-		return SkriptYaml.YAML_STORE.get(id);
+		return yaml;
 	}
 
 	public static boolean isLoaded(String id) {
@@ -271,7 +274,7 @@ public class YAMLAPI {
 
 		List<Object> objects = config.getList(path);
 
-		if (delta.getClass().isAssignableFrom(List.class)) {
+		if (delta instanceof List) {
 			if (objects == null)
 				config.setProperty(path, delta);
 			else {
@@ -291,6 +294,8 @@ public class YAMLAPI {
 		YAMLProcessor config = get(id);
 
 		List<Object> objects = config.getList(path);
+		if (objects == null)
+			return;
 
 		objects.remove(delta);
 		config.setProperty(path, objects); // Mark as modified
@@ -300,6 +305,8 @@ public class YAMLAPI {
 		YAMLProcessor config = get(id);
 
 		List<Object> objects = config.getList(path);
+		if (objects == null)
+			return;
 
 		for (Object o : delta)
 			objects.remove(o);
@@ -351,6 +358,8 @@ public class YAMLAPI {
 					config.setProperty(path, objects);
 				}
 			} else if (mode == ChangeMode.REMOVE) {
+				if (objects == null)
+					return;
 				for (Object o : delta)
 					objects.remove(o);
 				config.setProperty(path, objects); // Mark as modified

@@ -22,7 +22,6 @@ package me.sashie.skriptyaml.utils.yaml;
 import me.sashie.skriptyaml.SkriptYaml;
 import me.sashie.skriptyaml.debug.SkriptNode;
 import me.sashie.skriptyaml.utils.SkriptYamlUtils;
-import me.sashie.skriptyaml.utils.StringUtil;
 import org.bukkit.ChatColor;
 
 import javax.annotation.Nullable;
@@ -43,6 +42,28 @@ public class YAMLNode {
 		this.root = root;
 		this.allKeys = new ArrayList<String>();
 		this.writeDefaults = writeDefaults;
+	}
+
+	private static String[] splitPath(String path) {
+		int dot = path.indexOf('.');
+		if (dot == -1)
+			return new String[] { path };
+		List<String> parts = new ArrayList<String>();
+		int start = 0;
+		for (int i = 0; i < path.length(); i++) {
+			if (path.charAt(i) == '.') {
+				parts.add(path.substring(start, i));
+				start = i + 1;
+			}
+		}
+		if (start < path.length())
+			parts.add(path.substring(start));
+		return parts.toArray(new String[0]);
+	}
+
+	private void addKey(String key) {
+		if (!allKeys.contains(key))
+			allKeys.add(key);
 	}
 
 	/**
@@ -91,7 +112,7 @@ public class YAMLNode {
 			return SkriptYamlUtils.convertUUIDs(val);
 		}
 
-		String[] parts = path.split("\\.");
+		String[] parts = splitPath(path);
 		Map<String, Object> node = root;
 
 		for (int i = 0; i < parts.length; i++) {
@@ -128,21 +149,21 @@ public class YAMLNode {
 	public void setProperty(String path, Object value) {
 		if (!path.contains(".")) {
 			root.put(path, value);
-			if (!allKeys.contains(path))
-				allKeys.add(path);
+			addKey(path);
 			markModified();
 			return;
 		}
 
-		String[] parts = path.split("\\.");
+		String[] parts = splitPath(path);
 		Map<String, Object> node = root;
+		StringBuilder prevPath = new StringBuilder(path.length());
 
 		for (int i = 0; i < parts.length; i++) {
-			String[] prevPathParts = Arrays.copyOf(parts, i + 1);
-			String prevPath = StringUtil.joinString(prevPathParts, ".");
+			if (i > 0)
+				prevPath.append('.');
+			prevPath.append(parts[i]);
 
-			if (!allKeys.contains(prevPath))
-				allKeys.add(prevPath);
+			addKey(prevPath.toString());
 
 			Object o = node.get(parts[i]);
 
@@ -423,7 +444,7 @@ public class YAMLNode {
 
 	@SuppressWarnings("unchecked")
 	private List<Object> recursivelyConvertUUIDsInList(List<Object> list) {
-		List<Object> result = new ArrayList<>();
+		List<Object> result = new ArrayList<Object>(list.size());
 		for (Object value : list) {
 			if (value instanceof Map) {
 				value = recursivelyConvertUUIDsInMap((Map<String, Object>) value);
@@ -619,7 +640,7 @@ public class YAMLNode {
 			}
 		}
 
-		String[] parts = path.split("\\.");
+		String[] parts = splitPath(path);
 		Map<String, Object> node = root;
 
 		for (int i = 0; i < parts.length; i++) {
@@ -744,8 +765,9 @@ public class YAMLNode {
 			return;
 		if (allKeys.contains(path))
 			allKeys.remove(path);
+		String childPrefix = path + ".";
 		for (int i = allKeys.size() - 1; i >= 0; i--) {
-			if (allKeys.get(i).contains(path + "."))
+			if (allKeys.get(i).startsWith(childPrefix))
 				allKeys.remove(i);
 		}
 
@@ -755,7 +777,7 @@ public class YAMLNode {
 			return;
 		}
 
-		String[] parts = path.split("\\.");
+		String[] parts = splitPath(path);
 		Map<String, Object> node = root;
 		for (int i = 0; i < parts.length; i++) {
 			Object o = null;
