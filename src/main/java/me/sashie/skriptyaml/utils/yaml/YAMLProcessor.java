@@ -76,6 +76,20 @@ public class YAMLProcessor extends YAMLNode {
 	public static final char COMMENT_CHAR = '#';
 	private static final String COMMENT_PREFIX = "# ";
 	private static final String HEADER_PREFIX = "## ";
+
+	/**
+	 * Guards every use of the shared SnakeYAML machinery. skript-yaml keeps a single
+	 * {@link org.yaml.snakeyaml.constructor.Constructor} and {@link Representer} in {@link SkriptYaml} (so that
+	 * custom tags registered via {@code registerTag} are visible everywhere) and hands both to every
+	 * processor's {@link Yaml}. Those SnakeYAML classes are stateful and NOT thread-safe: {@code Yaml.load}
+	 * parks its Composer/parser/scanner on the shared constructor for the duration of the parse, and
+	 * constructing a {@code Yaml} mutates the shared constructor/representer (property utils, flow style,
+	 * duplicate-key policy). Async load/save effects (e.g. run off the main thread by addons such as
+	 * MundoSK-Async) therefore race and blow up deep inside SnakeYAML with ClassCastException or
+	 * IndexOutOfBoundsException. Serializing construction, load and dump on this one monitor removes the race.
+	 */
+	private static final Object YAML_LOCK = new Object();
+
 	protected final Yaml yaml;
 	protected File file;
 	protected String id;
@@ -105,9 +119,13 @@ public class YAMLProcessor extends YAMLNode {
 		options.setSplitLines(false);
 
 		Representer representer = SkriptYaml.getInstance().getRepresenter();
-		representer.setDefaultFlowStyle(format.getStyle());
 
-		yaml = new Yaml(SkriptYaml.getInstance().getConstructor(), representer, options);
+		// Building a Yaml over the shared constructor/representer mutates their state, so it must not run while
+		// another thread is loading/dumping or building its own Yaml. See YAML_LOCK.
+		synchronized (YAML_LOCK) {
+			representer.setDefaultFlowStyle(format.getStyle());
+			yaml = new Yaml(SkriptYaml.getInstance().getConstructor(), representer, options);
+		}
 
 		this.file = file;
 	}
@@ -127,7 +145,9 @@ public class YAMLProcessor extends YAMLNode {
 		try (InputStream stream = getInputStream()) {
 			if (stream == null)
 				throw new IOException("Stream is null!");
-			read(yaml.load(new UnicodeReader(stream)));
+			synchronized (YAML_LOCK) {
+				read(yaml.load(new UnicodeReader(stream)));
+			}
 		} catch (YAMLProcessorException e) {
 			loadFailed = true;
 			root = new LinkedHashMap<String, Object>();
@@ -162,8 +182,11 @@ public class YAMLProcessor extends YAMLNode {
 				}
 			}
 
-			read(yaml.load(builder.toString()));
-			//read(yaml.load(input));
+			Object loaded;
+			synchronized (YAML_LOCK) {
+				loaded = yaml.load(builder.toString());
+			}
+			read(loaded);
 			markUnmodified(); // Reset modified flag after successful load
 		} catch (ConstructorException e) {
 			loadFailed = true;
@@ -298,59 +321,58 @@ public class YAMLProcessor extends YAMLNode {
 			parent.mkdirs();
 		}
 
-		try (OutputStream stream = getOutputStream()) {
-			if (stream == null)
-				return false;
-			try (Writer writer = new OutputStreamWriter(stream, StandardCharsets.UTF_8)) {
+		// Build the whole document in memory first. Representing/dumping uses the shared, non-thread-safe
+		// SnakeYAML representer, so it runs under YAML_LOCK - but the lock only covers this CPU work. The disk
+		// write happens afterwards, outside the lock and buffered, so a slow disk never blocks other threads'
+		// loads/saves. The real file is also opened only after a successful build, so a dump error can no
+		// longer truncate/destroy the existing file.
+		StringWriter buffer = new StringWriter();
+		synchronized (YAML_LOCK) {
 			if (header != null) {
-				writer.append(header);
-				writer.append(LINE_BREAK);
+				buffer.append(header);
+				buffer.append(LINE_BREAK);
 				if (extraHeaderLine)
-					writer.append(LINE_BREAK);
+					buffer.append(LINE_BREAK);
 			}
 			String firstKey = "";
 			if (!root.keySet().isEmpty()) {
-				//CopyOnWriteArraySet<String> set = new CopyOnWriteArraySet<String>(root.keySet());
-				//String[] array = set.toArray(new String[0]);
-				//		String[] array = getKeys();
-				//String[] array = Collections.synchronizedSet(root.keySet()).toArray(new String[0]);
-				//String[] array = root.keySet().toArray(new String[0]);
-				//		firstKey = array[0];
-				//firstKey = root.keySet().toArray(new String[root.size()])[0];
-
-
 				firstKey = root.keySet().iterator().next();
-
 			}
 			if (comments.isEmpty() || format != YAMLFormat.EXTENDED) {
 				if (extraLines && header != null)
-					writer.append(LINE_BREAK);
+					buffer.append(LINE_BREAK);
 				for (Entry<String, Object> entry : root.entrySet()) {
 					if (extraLines && !entry.getKey().equals(firstKey))
-						writer.append(LINE_BREAK);
-					yaml.dump(Collections.singletonMap(entry.getKey(), serialize(entry.getValue())), writer);
+						buffer.append(LINE_BREAK);
+					yaml.dump(Collections.singletonMap(entry.getKey(), serialize(entry.getValue())), buffer);
 				}
-				// yaml.dump(root, writer);
 			} else {
 				if (extraLines && header != null)
-					writer.append(LINE_BREAK);
+					buffer.append(LINE_BREAK);
 				// Iterate over each root-level property and dump
 				for (Entry<String, Object> entry : root.entrySet()) {
 					// make an extra line between nodes if true
 					if (extraLines && !entry.getKey().equals(firstKey))
-						writer.append(LINE_BREAK);
+						buffer.append(LINE_BREAK);
 					// Output comment, if present
 					YAMLComment comment = comments.get(entry.getKey());
 					if (comment != null) {
 						if (comment.hasExtraLine())
-							writer.append(LINE_BREAK);
-						writer.append(comment.getComment());
-						writer.append(LINE_BREAK);
+							buffer.append(LINE_BREAK);
+						buffer.append(comment.getComment());
+						buffer.append(LINE_BREAK);
 					}
 					// Dump property
-					yaml.dump(Collections.singletonMap(entry.getKey(), serialize(entry.getValue())), writer);
+					yaml.dump(Collections.singletonMap(entry.getKey(), serialize(entry.getValue())), buffer);
 				}
 			}
+		}
+
+		try (OutputStream stream = getOutputStream()) {
+			if (stream == null)
+				return false;
+			try (Writer writer = new BufferedWriter(new OutputStreamWriter(stream, StandardCharsets.UTF_8))) {
+				writer.write(buffer.toString());
 			}
 			markUnmodified(); // Reset modified flag after successful save
 			return true;

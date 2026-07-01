@@ -35,7 +35,7 @@ public class CondYamlIsEmpty extends Condition {
 
 	@Override
 	public boolean check(final Event event) {
-		YAMLProcessor yaml = SkriptYaml.YAML_STORE.get(file.getSingle(event));
+		YAMLProcessor yaml = SkriptYaml.getYaml(file.getSingle(event));
 		if (yaml == null)
 			return isNegated();
 		return yaml.getAllKeys().isEmpty() ^ isNegated();

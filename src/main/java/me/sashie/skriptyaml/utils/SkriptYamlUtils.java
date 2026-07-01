@@ -19,10 +19,14 @@ import java.util.regex.Pattern;
 public class SkriptYamlUtils {
 
 	public static YAMLProcessor yamlExists(String name, SkriptNode skriptNode) {
-		YAMLProcessor yaml = SkriptYaml.YAML_STORE.get(name);
+		// getYaml is null-safe; a null name means the script's id expression produced nothing (e.g. a
+		// dynamic "prefix-" + <unknown> concat). Return null silently in that case so existence checks
+		// like 'yaml value "x" from <null> is not set' work instead of spamming warnings/throwing.
+		YAMLProcessor yaml = SkriptYaml.getYaml(name);
 		if (yaml != null)
 			return yaml;
-		SkriptYaml.warn("No yaml by the name '" + name + "' has been loaded " + skriptNode.toString());
+		if (name != null)
+			SkriptYaml.warn("No yaml by the name '" + name + "' has been loaded " + skriptNode.toString());
 		return null;
 	}
 

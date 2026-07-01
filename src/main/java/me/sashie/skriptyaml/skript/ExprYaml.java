@@ -150,6 +150,11 @@ public class ExprYaml<T> extends SimpleExpressionFork<T> {
 		if (config == null)
 			return null;
 
+		// null path = the node expression produced nothing; nothing to look up, so report 'not set'
+		// gracefully rather than letting the null hit path.equals("")/path.contains(".") and throw.
+		if (path == null)
+			return null;
+
 		if (state == YamlState.VALUE) {
 			Object o = config.getProperty(path);
 			if (o != null) {
@@ -227,6 +232,10 @@ public class ExprYaml<T> extends SimpleExpressionFork<T> {
 
 		YAMLProcessor config = SkriptYamlUtils.yamlExists(name, skriptNode);
 		if (config == null)
+			return;
+
+		// null path = nothing to set/delete; skip instead of throwing on path.contains(".") below
+		if (path == null)
 			return;
 
 		if (mode == ChangeMode.DELETE || mode == ChangeMode.RESET) {

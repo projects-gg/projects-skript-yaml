@@ -33,14 +33,17 @@ import java.util.*;
 public class YAMLNode {
 
 	protected Map<String, Object> root;
-	protected List<String> allKeys;
+	// Set (not List) so addKey()/recursiveKeySearch() dedup in O(1) and never do a linear contains() scan;
+	// LinkedHashSet preserves insertion order for 'all yaml nodes'. Was an ArrayList, which made every
+	// setProperty() O(existing keys) per path segment (O(N^2) for bulk writes).
+	protected Set<String> allKeys;
 	private boolean writeDefaults;
 
 	protected boolean modified = false;
 
 	public YAMLNode(Map<String, Object> root, boolean writeDefaults) {
 		this.root = root;
-		this.allKeys = new ArrayList<String>();
+		this.allKeys = new LinkedHashSet<String>();
 		this.writeDefaults = writeDefaults;
 	}
 
@@ -62,8 +65,7 @@ public class YAMLNode {
 	}
 
 	private void addKey(String key) {
-		if (!allKeys.contains(key))
-			allKeys.add(key);
+		allKeys.add(key);
 	}
 
 	/**
@@ -81,7 +83,8 @@ public class YAMLNode {
 	 * @return the map
 	 */
 	public List<String> getAllKeys() {
-		return allKeys;
+		// Snapshot copy: keeps the existing List-returning API and stops callers mutating internal state.
+		return new ArrayList<String>(allKeys);
 	}
 
 	/**
@@ -103,6 +106,8 @@ public class YAMLNode {
 	 */
 	@SuppressWarnings("unchecked")
 	public Object getProperty(String path) {
+		if (path == null)
+			return null;
 		if (!path.contains(".")) {
 			Object val = root.get(path);
 			if (val == null) {
@@ -147,6 +152,8 @@ public class YAMLNode {
 	 */
 	@SuppressWarnings("unchecked")
 	public void setProperty(String path, Object value) {
+		if (path == null)
+			return;
 		if (!path.contains(".")) {
 			root.put(path, value);
 			addKey(path);
@@ -628,6 +635,8 @@ public class YAMLNode {
 	@Nullable
 	@SuppressWarnings("unchecked")
 	public YAMLNode getNode(String path) {
+		if (path == null)
+			return null;
 		if (!path.contains(".")) {
 			Object val = root.get(path);
 			if (val == null) {
@@ -761,15 +770,13 @@ public class YAMLNode {
 	 */
 	@SuppressWarnings("unchecked")
 	public void removeProperty(String path, SkriptNode skriptNode) {
+		if (path == null)
+			return;
 		if (root == null || root.isEmpty())
 			return;
-		if (allKeys.contains(path))
-			allKeys.remove(path);
-		String childPrefix = path + ".";
-		for (int i = allKeys.size() - 1; i >= 0; i--) {
-			if (allKeys.get(i).startsWith(childPrefix))
-				allKeys.remove(i);
-		}
+		allKeys.remove(path);
+		final String childPrefix = path + ".";
+		allKeys.removeIf(k -> k.startsWith(childPrefix));
 
 		if (!path.contains(".")) {
 			root.remove(path);

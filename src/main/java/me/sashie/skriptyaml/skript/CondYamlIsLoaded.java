@@ -35,7 +35,7 @@ public class CondYamlIsLoaded extends Condition {
 
 	@Override
 	public boolean check(final Event event) {
-		Object checker = SkriptYaml.getInstance().getSkriptAdapter().createChecker((String s) -> SkriptYaml.YAML_STORE.containsKey(s));
+		Object checker = SkriptYaml.getInstance().getSkriptAdapter().createChecker((String s) -> SkriptYaml.hasYaml(s));
 		return SkriptYaml.getInstance().getSkriptAdapter().checkExpression(file, event, checker, isNegated());
 	}
 

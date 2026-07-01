@@ -44,7 +44,7 @@ public class CondNodeHasValue extends Condition {
 		String path = this.path.getSingle(event);
 		String file = this.file.getSingle(event);
 
-		YAMLProcessor yaml = SkriptYaml.YAML_STORE.get(file);
+		YAMLProcessor yaml = SkriptYaml.getYaml(file);
 		if (yaml == null)
 			return isNegated();
 

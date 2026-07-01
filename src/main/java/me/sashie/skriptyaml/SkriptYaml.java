@@ -35,6 +35,41 @@ public class SkriptYaml extends JavaPlugin {
 	// pitfall that a manual toLowerCase() on keys would hit.
 	public final static ConcurrentMap<String, YAMLProcessor> YAML_STORE = new ConcurrentSkipListMap<String, YAMLProcessor>(String.CASE_INSENSITIVE_ORDER);
 
+	/**
+	 * Null-safe lookup into {@link #YAML_STORE}. The backing {@link ConcurrentSkipListMap} is sorted by a
+	 * comparator ({@link String#CASE_INSENSITIVE_ORDER}) and therefore throws a {@link NullPointerException}
+	 * when queried with a {@code null} key (the comparator can't compare null). Scripts can easily produce a
+	 * null id, e.g. {@code yaml value "x" from ("ps-" + name of attacker)} where the right-hand side is
+	 * unknown, so all store access funnels through these guards to fail gracefully (treat a null id as
+	 * "no such yaml") instead of crashing Skript with a severe error.
+	 *
+	 * @param id the yaml id/name, may be null
+	 * @return the matching processor, or null if id is null or not loaded
+	 */
+	public static YAMLProcessor getYaml(String id) {
+		return id == null ? null : YAML_STORE.get(id);
+	}
+
+	/**
+	 * Null-safe {@link #YAML_STORE} membership test. See {@link #getYaml(String)} for why this guard exists.
+	 *
+	 * @param id the yaml id/name, may be null
+	 * @return true only if id is non-null and a yaml with that id is loaded
+	 */
+	public static boolean hasYaml(String id) {
+		return id != null && YAML_STORE.containsKey(id);
+	}
+
+	/**
+	 * Null-safe removal from {@link #YAML_STORE}. See {@link #getYaml(String)} for why this guard exists.
+	 *
+	 * @param id the yaml id/name, may be null
+	 * @return the removed processor, or null if id is null or not loaded
+	 */
+	public static YAMLProcessor removeYaml(String id) {
+		return id == null ? null : YAML_STORE.remove(id);
+	}
+
 	private static SkriptYaml instance;
 	private int serverVersion;
 	private SkriptAdapter adapter;

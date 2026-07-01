@@ -121,7 +121,8 @@ public class YAMLAPI {
 
 	public static void save(String id) {
 		YAMLProcessor yaml = get(id);
-		yaml.save(true);
+		if (yaml != null)
+			yaml.save(true);
 	}
 
 	public static String[] loadedYamlNames() {
@@ -133,7 +134,7 @@ public class YAMLAPI {
 
 
 	public static YAMLProcessor get(String id) {
-		YAMLProcessor yaml = SkriptYaml.YAML_STORE.get(id);
+		YAMLProcessor yaml = SkriptYaml.getYaml(id);
 		if (yaml == null) {
 			SkriptYaml.warn("No yaml by the name '" + id + "' has been loaded");
 			return null;
@@ -143,15 +144,17 @@ public class YAMLAPI {
 	}
 
 	public static boolean isLoaded(String id) {
-		return SkriptYaml.YAML_STORE.containsKey(id);
+		return SkriptYaml.hasYaml(id);
 	}
 
 	public static boolean isEmpty(String id) {
-		return SkriptYaml.YAML_STORE.get(id).getAllKeys().isEmpty();
+		YAMLProcessor yaml = SkriptYaml.getYaml(id);
+		return yaml == null || yaml.getAllKeys().isEmpty();
 	}
 
 	public static boolean hasValue(String id, String path) {
-		return (SkriptYaml.YAML_STORE.get(id).getProperty(path) != null);
+		YAMLProcessor yaml = SkriptYaml.getYaml(id);
+		return yaml != null && yaml.getProperty(path) != null;
 	}
 
 	public static Object getValue(String id, String path) {
@@ -384,17 +387,22 @@ public class YAMLAPI {
 	 * @return true if the ID was successfully changed, false otherwise
 	 */
 	public static boolean changeId(String oldId, String newId, SkriptNode skriptNode) {
-		if (!SkriptYaml.YAML_STORE.containsKey(oldId)) {
+		if (!SkriptYaml.hasYaml(oldId)) {
 			SkriptYaml.warn("No yaml by the name '" + oldId + "' has been loaded " + (skriptNode != null ? skriptNode.toString() : ""));
 			return false;
 		}
 
-		if (SkriptYaml.YAML_STORE.containsKey(newId)) {
+		if (newId == null) {
+			SkriptYaml.warn("Cannot change the yaml id to a null name " + (skriptNode != null ? skriptNode.toString() : ""));
+			return false;
+		}
+
+		if (SkriptYaml.hasYaml(newId)) {
 			SkriptYaml.warn("A yaml with the name '" + newId + "' is already loaded " + (skriptNode != null ? skriptNode.toString() : ""));
 			return false;
 		}
 
-		YAMLProcessor yaml = SkriptYaml.YAML_STORE.remove(oldId);
+		YAMLProcessor yaml = SkriptYaml.removeYaml(oldId);
 		SkriptYaml.YAML_STORE.put(newId, yaml);
 		return true;
 	}
@@ -409,7 +417,7 @@ public class YAMLAPI {
 	 * @return true if the file path was successfully reassigned, false otherwise
 	 */
 	public static boolean reassignFile(String id, String newFilePath, boolean isNonRelative, SkriptNode skriptNode) {
-		YAMLProcessor yaml = SkriptYaml.YAML_STORE.get(id);
+		YAMLProcessor yaml = SkriptYaml.getYaml(id);
 		if (yaml == null) {
 			SkriptYaml.warn("No yaml by the name '" + id + "' has been loaded " + (skriptNode != null ? skriptNode.toString() : ""));
 			return false;

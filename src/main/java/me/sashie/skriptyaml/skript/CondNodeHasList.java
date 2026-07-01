@@ -40,7 +40,7 @@ public class CondNodeHasList extends Condition {
 
 	@Override
 	public boolean check(final Event event) {
-		YAMLProcessor yaml = SkriptYaml.YAML_STORE.get(file.getSingle(event));
+		YAMLProcessor yaml = SkriptYaml.getYaml(file.getSingle(event));
 		if (yaml == null)
 			return isNegated();
 		Object o =  yaml.getProperty(path.getSingle(event));

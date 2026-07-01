@@ -57,7 +57,7 @@ public class ExprAllYamlNodes extends SimpleExpression<String> {
 	protected String[] get(Event event) {
 		final String name = this.file.getSingle(event);
 
-		YAMLProcessor yaml = SkriptYaml.YAML_STORE.get(name);
+		YAMLProcessor yaml = SkriptYaml.getYaml(name);
 		if (yaml == null) {
 			SkriptYaml.warn("No yaml file by the name '" + name + "' has been loaded");
 			return null;

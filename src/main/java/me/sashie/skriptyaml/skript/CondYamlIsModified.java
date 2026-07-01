@@ -70,7 +70,7 @@ public class CondYamlIsModified extends Condition {
 	@Override
 	public boolean check(final Event event) {
 		String file = this.file.getSingle(event);
-		YAMLProcessor yaml = SkriptYaml.YAML_STORE.get(file);
+		YAMLProcessor yaml = SkriptYaml.getYaml(file);
 		if (yaml == null)
 			return isNegated();
 		return yaml.isModified() ^ isNegated();
